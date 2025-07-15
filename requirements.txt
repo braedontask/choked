@@ -1,0 +1,4 @@
+redis
+python-dotenv
+pytest-asyncio
+requests
