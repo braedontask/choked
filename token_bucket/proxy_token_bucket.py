@@ -16,8 +16,7 @@ class ProxyTokenBucket:
         }
         
         response = requests.get(
-            # "https://api.try-marks.co/choked/acquire",
-            "http://localhost:8080/choked/acquire",
+            "https://api.try-marks.co/choked/acquire",
             params=params,
             headers={
                 "Authorization": f"Bearer {self.token}"
