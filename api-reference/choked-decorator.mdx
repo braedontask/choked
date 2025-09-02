@@ -1,0 +1,81 @@
+# @choked Decorator
+
+The main decorator for applying rate limiting to functions.
+
+## Signature
+
+```python
+def choked(key: str, max_tokens: int, refill_period: int, sleep_time: float = 1.0) -> Callable
+```
+
+## Parameters
+
+<ParamField path="key" type="str" required>
+  Unique identifier for the rate limit bucket. Functions with the same key share the same rate limit.
+</ParamField>
+
+<ParamField path="max_tokens" type="int" required>
+  Maximum number of tokens in the bucket. This represents the burst capacity - how many requests can be made immediately.
+</ParamField>
+
+<ParamField path="refill_period" type="int" required>
+  Time in seconds for the bucket to completely refill from empty to max_tokens. The refill rate is max_tokens/refill_period per second.
+</ParamField>
+
+<ParamField path="sleep_time" type="float" default="1.0">
+  Initial sleep time in seconds when rate limited. Uses exponential backoff with jitter.
+</ParamField>
+
+## Returns
+
+Returns a decorator function that can be applied to both synchronous and asynchronous functions.
+
+## Examples
+
+### Basic Usage
+
+```python
+from choked import choked
+
+@choked(key="api_calls", max_tokens=10, refill_period=60)
+def make_api_call():
+    # This function is rate limited to 10 calls per minute
+    return "API response"
+```
+
+### Async Function
+
+```python
+@choked(key="db_writes", max_tokens=5, refill_period=1, sleep_time=0.5)
+async def write_to_db(data):
+    # This async function is rate limited to 5 calls per second
+    await save_data(data)
+```
+
+### Shared Rate Limit
+
+```python
+@choked(key="shared_resource", max_tokens=3, refill_period=10)
+def function_a():
+    return "A"
+
+@choked(key="shared_resource", max_tokens=3, refill_period=10) 
+def function_b():
+    return "B"
+
+# Both functions share the same rate limit bucket
+```
+
+## Behavior
+
+- **Automatic Detection**: The decorator automatically detects if the wrapped function is async or sync
+- **Exponential Backoff**: When rate limited, sleep time doubles on each retry
+- **Jitter**: Random factor (0.8x to 1.2x) applied to sleep time to prevent thundering herd
+- **Token Consumption**: Each function call consumes exactly one token
+
+## Backend Selection
+
+The decorator automatically chooses the appropriate backend:
+
+- If `CHOKED_API_TOKEN` environment variable is set: Uses proxy service
+- Otherwise: Uses Redis for distributed rate limiting

@@ -1,0 +1,44 @@
+# Welcome to Choked
+
+Choked is a simple and powerful Python rate limiting library that uses the token bucket algorithm to control the rate of function calls.
+
+## Features
+
+- **Easy to use**: Simple decorator-based API
+- **Flexible backends**: Supports both Redis and proxy service backends
+- **Async/Sync support**: Works with both synchronous and asynchronous functions
+- **Exponential backoff**: Smart retry logic with jitter to prevent thundering herd
+- **Distributed**: Share rate limits across multiple processes or servers
+
+## Quick Start
+
+Install choked:
+
+```bash
+pip install choked
+```
+
+Use the decorator:
+
+```python
+from choked import choked
+
+@choked(key="api_calls", max_tokens=10, refill_period=60)
+def make_api_call():
+    # This function is rate limited to 10 calls per minute
+    return "API response"
+
+# The decorator handles rate limiting automatically
+make_api_call()  # Works immediately
+```
+
+## How it Works
+
+Choked uses a **token bucket algorithm**:
+
+1. Each bucket has a maximum number of tokens (`max_tokens`)
+2. Tokens refill at a steady rate (`max_tokens / refill_period` per second)
+3. Each function call consumes one token
+4. When no tokens are available, the function waits with exponential backoff
+
+This allows for burst traffic while maintaining an average rate limit.

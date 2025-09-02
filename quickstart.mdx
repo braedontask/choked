@@ -1,0 +1,74 @@
+# Quick Start
+
+Get up and running with Choked in minutes.
+
+## Installation
+
+```bash
+pip install choked
+```
+
+## Basic Usage
+
+The simplest way to use Choked is with the `@choked` decorator:
+
+```python
+from choked import choked
+
+@choked(key="my_function", max_tokens=5, refill_period=10)
+def my_rate_limited_function():
+    print("This function can be called 5 times every 10 seconds")
+    return "success"
+
+# Call the function
+result = my_rate_limited_function()
+```
+
+## Parameters Explained
+
+- **`key`**: Unique identifier for this rate limit. Functions with the same key share the same bucket.
+- **`max_tokens`**: Maximum number of calls allowed in a burst (bucket capacity)
+- **`refill_period`**: Time in seconds for the bucket to refill completely
+- **`sleep_time`** (optional): Initial wait time when rate limited. Defaults to 1.0 seconds.
+
+## Async Functions
+
+Choked automatically detects and handles async functions:
+
+```python
+import asyncio
+from choked import choked
+
+@choked(key="async_api", max_tokens=3, refill_period=5)
+async def async_api_call():
+    print("Async function with rate limiting")
+    return "async result"
+
+# Use with asyncio
+async def main():
+    result = await async_api_call()
+    print(result)
+
+asyncio.run(main())
+```
+
+## Multiple Rate Limits
+
+You can apply different rate limits using different keys:
+
+```python
+# Different functions with different limits
+@choked(key="fast_api", max_tokens=100, refill_period=60)
+def fast_function():
+    return "fast"
+
+@choked(key="slow_api", max_tokens=5, refill_period=60) 
+def slow_function():
+    return "slow"
+```
+
+## Next Steps
+
+- Learn about [Configuration](/essentials/configuration) options
+- Understand [Token Buckets](/essentials/token-buckets) in detail
+- Set up [Redis](/essentials/redis-setup) for distributed rate limiting
