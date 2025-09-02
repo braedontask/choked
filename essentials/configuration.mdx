@@ -1,0 +1,135 @@
+# Configuration
+
+Choked offers flexible configuration options to suit different deployment scenarios and performance requirements.
+
+## Backend Configuration
+
+Choked supports two backend types for storing token bucket state:
+
+### Redis Backend (Recommended for Production)
+
+Use Redis for distributed rate limiting across multiple processes or servers:
+
+```python
+from choked import choked
+from choked.token_bucket.redis_token_bucket import RedisTokenBucket
+
+# Configure Redis backend globally
+import os
+os.environ['CHOKED_REDIS_URL'] = 'redis://localhost:6379/0'
+
+@choked(key="api_calls", max_tokens=10, refill_period=60)
+def my_function():
+    return "Limited by Redis"
+```
+
+### Proxy Backend
+
+Use the proxy backend for centralized rate limiting through a dedicated service:
+
+```python
+import os
+os.environ['CHOKED_PROXY_URL'] = 'http://localhost:8080'
+
+@choked(key="api_calls", max_tokens=10, refill_period=60)
+def my_function():
+    return "Limited by proxy service"
+```
+
+## Environment Variables
+
+Choked uses environment variables for configuration:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `CHOKED_REDIS_URL` | Redis connection URL | None |
+| `CHOKED_PROXY_URL` | Proxy service URL | None |
+| `CHOKED_DEFAULT_SLEEP_TIME` | Default initial sleep time when rate limited | 1.0 |
+| `CHOKED_MAX_RETRIES` | Maximum retry attempts | 10 |
+
+## Decorator Parameters
+
+The `@choked` decorator accepts these parameters:
+
+### Required Parameters
+
+- **`key`** (str): Unique identifier for the rate limit bucket
+- **`max_tokens`** (int): Maximum number of tokens in the bucket
+- **`refill_period`** (float): Time in seconds for the bucket to refill completely
+
+### Optional Parameters
+
+- **`sleep_time`** (float): Initial wait time when rate limited. Defaults to 1.0 seconds
+- **`backend`** (str): Force a specific backend ('redis' or 'proxy'). Auto-detects if not specified
+
+## Advanced Configuration
+
+### Custom Sleep Time
+
+Adjust the initial sleep time for different use cases:
+
+```python
+# Fast API with short waits
+@choked(key="fast_api", max_tokens=100, refill_period=60, sleep_time=0.1)
+def fast_api_call():
+    return "Quick retry"
+
+# Expensive API with longer waits  
+@choked(key="slow_api", max_tokens=5, refill_period=60, sleep_time=5.0)
+def expensive_api_call():
+    return "Longer retry"
+```
+
+### Multiple Workers with Shared API Key
+
+Choked is particularly effective for scenarios where you have multiple workers using the same API key and want to scale them without manual rate limit tuning:
+
+```python
+# All workers share the same rate limit
+@choked(key="shared_api_key", max_tokens=1000, refill_period=3600)  # 1000/hour
+def worker_api_call():
+    # Each worker automatically coordinates through Redis
+    return make_external_api_call()
+
+# Scale workers up/down without changing rate limit configuration
+# The token bucket automatically handles distribution
+```
+
+### Per-User Rate Limiting
+
+Create dynamic rate limits based on user context:
+
+```python
+def get_user_rate_limit(user_id):
+    @choked(key=f"user_{user_id}", max_tokens=10, refill_period=60)
+    def user_api_call():
+        return f"API call for user {user_id}"
+    return user_api_call
+
+# Each user gets their own rate limit
+user_123_call = get_user_rate_limit("123")
+user_456_call = get_user_rate_limit("456")
+```
+
+## Performance Tuning
+
+### Bucket Sizing
+
+Choose `max_tokens` and `refill_period` based on your API's characteristics:
+
+- **Burst traffic**: Higher `max_tokens` allows more burst capacity
+- **Steady traffic**: Lower `max_tokens` enforces more consistent rate
+- **Long periods**: Longer `refill_period` with proportionally higher `max_tokens`
+
+### Examples
+
+```python
+# High burst, 1000 calls/hour average
+@choked(key="bursty", max_tokens=100, refill_period=360)  # 100 every 6 minutes
+
+# Steady rate, 60 calls/hour
+@choked(key="steady", max_tokens=1, refill_period=60)     # 1 per minute
+
+# Mixed workload, 500 calls/hour with moderate bursts
+@choked(key="mixed", max_tokens=25, refill_period=180)    # 25 every 3 minutes
+```

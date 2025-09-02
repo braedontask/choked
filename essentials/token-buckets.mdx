@@ -1,0 +1,187 @@
+# Token Buckets
+
+Understanding the token bucket algorithm that powers Choked's rate limiting.
+
+## What is a Token Bucket?
+
+A token bucket is a rate limiting algorithm that allows for controlled bursts of traffic while maintaining an average rate limit over time.
+
+Think of it like a physical bucket:
+- The bucket has a maximum capacity (`max_tokens`)
+- Tokens are added to the bucket at a steady rate
+- Each API call consumes one token from the bucket
+- When the bucket is empty, requests must wait
+
+## How It Works
+
+### 1. Bucket Initialization
+
+When you create a rate limit with `@choked(key="api", max_tokens=10, refill_period=60)`:
+
+```
+Bucket capacity: 10 tokens
+Refill rate: 10 tokens / 60 seconds = 0.167 tokens/second
+Initial state: 10 tokens (full bucket)
+```
+
+### 2. Token Consumption
+
+Each function call consumes 1 token:
+
+```python
+@choked(key="api", max_tokens=10, refill_period=60)
+def api_call():
+    return "success"
+
+api_call()  # Consumes 1 token (9 remaining)
+api_call()  # Consumes 1 token (8 remaining)
+# ... continue until bucket is empty
+```
+
+### 3. Token Refill
+
+Tokens refill continuously at a steady rate:
+
+```
+After 6 seconds: +1 token (0.167 × 6 ≈ 1)
+After 12 seconds: +2 tokens
+After 60 seconds: +10 tokens (bucket full again)
+```
+
+### 4. Burst Handling
+
+The bucket allows bursts up to the maximum capacity:
+
+```python
+# All 10 calls succeed immediately (burst)
+for i in range(10):
+    api_call()  # All succeed instantly
+
+# 11th call waits for refill
+api_call()  # Waits ~6 seconds for next token
+```
+
+## Algorithm Details
+
+### Refill Rate Calculation
+
+```python
+refill_rate = max_tokens / refill_period
+```
+
+For `max_tokens=10, refill_period=60`:
+```python
+refill_rate = 10 / 60 = 0.167 tokens/second
+```
+
+### Token Availability Check
+
+Before each function call:
+
+1. Calculate elapsed time since last refill
+2. Add tokens based on elapsed time: `new_tokens = elapsed_time × refill_rate`
+3. Cap total tokens at bucket capacity: `min(current_tokens + new_tokens, max_tokens)`
+4. If tokens available: consume 1 token and proceed
+5. If no tokens: wait with exponential backoff
+
+### Exponential Backoff
+
+When no tokens are available, Choked uses exponential backoff with jitter:
+
+```python
+wait_time = base_sleep_time × (2 ** attempt) + random_jitter
+```
+
+This prevents thundering herd problems when multiple processes are waiting.
+
+## Practical Examples
+
+### Example 1: API Rate Limiting
+
+```python
+@choked(key="external_api", max_tokens=100, refill_period=3600)  # 100/hour
+def call_external_api():
+    return requests.get("https://api.example.com/data")
+```
+
+**Behavior:**
+- Initial burst: 100 calls succeed immediately
+- Steady state: 1 call every 36 seconds (3600s ÷ 100 = 36s)
+- Recovery: Full burst capacity restored after 1 hour of no usage
+
+### Example 2: Database Connections
+
+```python
+@choked(key="db_heavy", max_tokens=5, refill_period=10)  # 5 every 10 seconds
+def heavy_db_query():
+    return db.execute("SELECT * FROM large_table")
+```
+
+**Behavior:**
+- Burst: 5 queries can run immediately
+- Rate: New query allowed every 2 seconds (10s ÷ 5 = 2s)
+- Protection: Prevents overwhelming the database
+
+### Example 3: Multi-Worker Coordination
+
+```python
+# Multiple workers sharing the same API key
+@choked(key="shared_api_limit", max_tokens=1000, refill_period=3600)
+def worker_task():
+    return make_api_request()
+```
+
+**Behavior:**
+- All workers share the same 1000 tokens/hour
+- Automatic load balancing across workers
+- No manual coordination needed
+- Scale workers up/down without changing limits
+
+## Comparison with Other Algorithms
+
+### vs. Fixed Window
+
+**Fixed Window:** 100 requests per hour, reset at the top of each hour
+- Problem: 200 requests possible in 1 minute (100 at 11:59, 100 at 12:00)
+
+**Token Bucket:** 100 tokens, refill over 1 hour
+- Solution: Maximum 100 requests in any 1-hour period
+
+### vs. Sliding Window
+
+**Sliding Window:** Complex to implement, higher memory usage
+**Token Bucket:** Simple, memory efficient, allows natural bursts
+
+### vs. Leaky Bucket
+
+**Leaky Bucket:** Enforces strict output rate, no bursts allowed
+**Token Bucket:** Allows bursts up to capacity, more flexible
+
+## Tuning Guidelines
+
+### Choose `max_tokens`
+
+- **Small values (1-10)**: Strict rate limiting, minimal bursts
+- **Medium values (10-100)**: Balanced burst and rate control
+- **Large values (100+)**: High burst capacity, loose short-term limits
+
+### Choose `refill_period`
+
+- **Short periods (1-60s)**: Responsive to traffic patterns
+- **Medium periods (1-10 minutes)**: Good for API rate limits
+- **Long periods (hours)**: Daily/hourly quotas
+
+### Optimal Ratios
+
+```python
+# Strict: 1 token per period
+@choked(key="strict", max_tokens=1, refill_period=60)
+
+# Moderate burst: 10% of period capacity
+@choked(key="moderate", max_tokens=6, refill_period=60)  # 6 tokens, 10s each
+
+# High burst: 50%+ of period capacity  
+@choked(key="bursty", max_tokens=30, refill_period=60)   # 30 tokens, 2s each
+```
+
+The token bucket algorithm provides an elegant solution for rate limiting that balances burst traffic accommodation with long-term rate control.

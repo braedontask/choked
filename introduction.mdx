@@ -9,6 +9,7 @@ Choked is a simple and powerful Python rate limiting library that uses the token
 - **Async/Sync support**: Works with both synchronous and asynchronous functions
 - **Exponential backoff**: Smart retry logic with jitter to prevent thundering herd
 - **Distributed**: Share rate limits across multiple processes or servers
+- **Multi-worker scaling**: Perfect for managing multiple workers using the same API key without manual rate limit tuning
 
 ## Quick Start
 
@@ -42,3 +43,24 @@ Choked uses a **token bucket algorithm**:
 4. When no tokens are available, the function waits with exponential backoff
 
 This allows for burst traffic while maintaining an average rate limit.
+
+## Perfect for Multi-Worker Scenarios
+
+Choked excels when you have **multiple workers sharing the same API key** and need to scale without manual rate limit tuning:
+
+```python
+# All workers automatically coordinate through Redis
+@choked(key="shared_api_key", max_tokens=1000, refill_period=3600)  # 1000/hour
+def worker_api_call():
+    return make_external_api_call()
+
+# Scale from 1 to 100 workers - no configuration changes needed!
+# Each worker competes for tokens from the shared bucket
+# Automatic load balancing and coordination
+```
+
+**Benefits:**
+- **Auto-scaling**: Add/remove workers without changing rate limits
+- **No manual tuning**: No need to calculate per-worker limits
+- **Fair distribution**: Workers automatically share available capacity
+- **Prevents overages**: Never exceed your API provider's limits
