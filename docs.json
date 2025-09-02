@@ -16,17 +16,17 @@
           {
             "group": "Get Started",
             "pages": [
-              "introduction",
-              "quickstart",
-              "development"
+              "docs/introduction",
+              "docs/quickstart",
+              "docs/development"
             ]
           },
           {
             "group": "Essentials",
             "pages": [
-              "essentials/configuration",
-              "essentials/token-buckets",
-              "essentials/redis-setup"
+              "docs/essentials/configuration",
+              "docs/essentials/token-buckets",
+              "docs/essentials/redis-setup"
             ]
           }
         ]
@@ -37,9 +37,9 @@
           {
             "group": "API Documentation",
             "pages": [
-              "api-reference/introduction",
-              "api-reference/choked-decorator",
-              "api-reference/token-bucket"
+              "docs/api-reference/introduction",
+              "docs/api-reference/choked-decorator",
+              "docs/api-reference/token-bucket"
             ]
           }
         ]
