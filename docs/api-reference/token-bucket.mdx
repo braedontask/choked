@@ -1,0 +1,121 @@
+# Token Bucket
+
+The token bucket classes that power Choked's rate limiting functionality.
+
+## Overview
+
+Choked uses two different token bucket implementations depending on your configuration:
+
+- **RedisTokenBucket**: For distributed rate limiting using Redis
+- **ProxyTokenBucket**: For managed rate limiting via the Choked proxy service
+
+The appropriate implementation is automatically selected based on your environment configuration.
+
+## RedisTokenBucket
+
+Used when no `CHOKED_API_TOKEN` environment variable is set. Requires Redis for distributed coordination.
+
+### Constructor
+
+```python
+RedisTokenBucket(key: str, max_tokens: int, refill_rate: float)
+```
+
+<ParamField path="key" type="str" required>
+  Unique identifier for the rate limit bucket
+</ParamField>
+
+<ParamField path="max_tokens" type="int" required>
+  Maximum number of tokens in the bucket
+</ParamField>
+
+<ParamField path="refill_rate" type="float" required>
+  Rate at which tokens are added to the bucket (tokens per second)
+</ParamField>
+
+### Methods
+
+#### acquire()
+
+```python
+async def acquire() -> bool
+```
+
+Attempts to acquire a token from the bucket.
+
+**Returns**: `True` if a token was successfully acquired, `False` otherwise.
+
+### Configuration
+
+Requires the `REDIS_URL` environment variable to be set:
+
+```bash
+export REDIS_URL="redis://localhost:6379"
+```
+
+## ProxyTokenBucket
+
+Used when `CHOKED_API_TOKEN` environment variable is set. Provides managed rate limiting through the Choked proxy service.
+
+### Constructor
+
+```python
+ProxyTokenBucket(token: str, key: str, max_tokens: int, refill_rate: float)
+```
+
+<ParamField path="token" type="str" required>
+  API token for the Choked proxy service
+</ParamField>
+
+<ParamField path="key" type="str" required>
+  Unique identifier for the rate limit bucket
+</ParamField>
+
+<ParamField path="max_tokens" type="int" required>
+  Maximum number of tokens in the bucket
+</ParamField>
+
+<ParamField path="refill_rate" type="float" required>
+  Rate at which tokens are added to the bucket (tokens per second)
+</ParamField>
+
+### Methods
+
+#### acquire()
+
+```python
+async def acquire() -> bool
+```
+
+Attempts to acquire a token from the bucket via the proxy service.
+
+**Returns**: `True` if a token was successfully acquired, `False` otherwise.
+
+### Configuration
+
+Requires the `CHOKED_API_TOKEN` environment variable:
+
+```bash
+export CHOKED_API_TOKEN="your_api_token_here"
+```
+
+## Usage Notes
+
+- Both implementations use the same async interface
+- Token buckets are automatically instantiated by the `@choked` decorator
+- The refill rate is calculated as `max_tokens / refill_period`
+- All token bucket operations are atomic and thread-safe
+- Redis implementation uses Lua scripts for atomic operations
+
+## Example Usage
+
+You typically don't need to use these classes directly. The `@choked` decorator handles instantiation automatically:
+
+```python
+from choked import choked
+
+# This automatically creates and manages a token bucket
+@choked(key="my_api", max_tokens=10, refill_period=60)
+def my_function():
+    pass
+```

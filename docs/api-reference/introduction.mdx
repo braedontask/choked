@@ -1,0 +1,41 @@
+# API Reference
+
+Welcome to the Choked API reference. This section provides detailed documentation for all classes, functions, and modules in the Choked library.
+
+## Overview
+
+Choked provides a simple yet powerful API for rate limiting Python functions using the token bucket algorithm. The main components are:
+
+- **[@choked decorator](choked-decorator)**: The primary decorator for applying rate limiting
+- **[Token Bucket](token-bucket)**: The underlying token bucket implementations
+
+## Quick Reference
+
+### Main Decorator
+
+```python
+from choked import choked
+
+@choked(key="my_api", max_tokens=10, refill_period=60)
+def my_function():
+    pass
+```
+
+### Key Parameters
+
+- `key`: Unique identifier for the rate limit bucket
+- `max_tokens`: Maximum number of tokens (burst capacity)
+- `refill_period`: Time in seconds to refill the bucket completely
+- `sleep_time`: Initial sleep time when rate limited (optional)
+
+## Backend Selection
+
+Choked automatically selects the appropriate backend:
+
+- **Proxy Service**: When `CHOKED_API_TOKEN` environment variable is set
+- **Redis**: Default backend for distributed rate limiting
+
+## Next Steps
+
+- Learn about the [@choked decorator](choked-decorator) in detail
+- Understand [Token Bucket](token-bucket) implementations

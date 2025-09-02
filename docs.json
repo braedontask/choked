@@ -1,7 +1,7 @@
 {
   "$schema": "https://mintlify.com/docs.json",
   "theme": "mint",
-  "name": "Choked",
+  "name": "choked docs",
   "colors": {
     "primary": "#0D9373",
     "light": "#07C983",
@@ -17,16 +17,14 @@
             "group": "Get Started",
             "pages": [
               "docs/introduction",
-              "docs/quickstart",
-              "docs/development"
+              "docs/quickstart"
             ]
           },
           {
             "group": "Essentials",
             "pages": [
               "docs/essentials/configuration",
-              "docs/essentials/token-buckets",
-              "docs/essentials/redis-setup"
+              "docs/essentials/token-buckets"
             ]
           }
         ]
@@ -48,45 +46,32 @@
     "global": {
       "anchors": [
         {
-          "anchor": "Documentation",
-          "href": "https://docs.example.com",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Community",
-          "href": "https://slack.example.com",
-          "icon": "slack"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://blog.example.com",
-          "icon": "newspaper"
+          "anchor": "X",
+          "href": "https://x.com/braedontask",
+          "icon": "x-twitter"
         }
       ]
     }
   },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
+
   "navbar": {
     "links": [
       {
         "label": "Support",
-        "href": "mailto:support@example.com"
+        "href": "https://x.com/braedontask"
       }
     ],
     "primary": {
       "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.example.com"
+      "label": "GitHub",
+      "href": "https://github.com/braedontask/choked"
     }
   },
   "footer": {
     "socials": {
-      "x": "https://x.com/example",
-      "github": "https://github.com/example/choked",
-      "linkedin": "https://www.linkedin.com/company/example"
+      "x": "https://x.com/braedontask",
+      "github": "https://github.com/braedontask/choked",
+      "linkedin": "https://www.linkedin.com/in/braedonvillano/"
     }
   }
 }
