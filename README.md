@@ -25,7 +25,7 @@ Choked is a decorator-based rate limiting library that uses the token bucket alg
 pip install choked
 ```
 
-### Basic Usage
+### Sync + Async Usage
 
 ```python
 from choked import choked
@@ -37,21 +37,6 @@ def make_api_call():
 
 # The decorator handles everything automatically
 result = make_api_call()  # ✅ Works immediately
-```
-
-### Async Functions
-
-```python
-import asyncio
-from choked import choked
-
-@choked(key="db_writes", max_tokens=5, refill_period=1)
-async def write_to_database(data):
-    """Rate limited to 5 calls per second"""
-    await save_data(data)
-
-# Use normally with asyncio
-asyncio.run(write_to_database({"user": "data"}))
 ```
 
 ## 🎯 Perfect for Multi-Worker Applications
@@ -112,19 +97,6 @@ No Redis required - we handle the infrastructure for you.
 
 ## 🔧 Advanced Usage
 
-### Custom Sleep Behavior
-
-```python
-@choked(
-    key="fast_api", 
-    max_tokens=50, 
-    refill_period=60,
-    sleep_time=0.1  # Start with shorter waits
-)
-def high_frequency_api():
-    return "Optimized for speed"
-```
-
 ### Shared Rate Limits
 
 ```python
@@ -140,32 +112,25 @@ def function_b():
 # Both functions compete for the same 10 calls/minute
 ```
 
-### Different Limits for Different Operations
-
-```python
-@choked(key="read_ops", max_tokens=1000, refill_period=60)
-def read_data():
-    return "Fast reads"
-
-@choked(key="write_ops", max_tokens=100, refill_period=60)
-def write_data():
-    return "Slower writes"
-```
-
 ## 🏗️ Real-World Examples
 
-### API Integration
+### Token-Based API Integration
 
 ```python
-import requests
+import openai
 from choked import choked
 
-@choked(key="github_api", max_tokens=5000, refill_period=3600)  # GitHub's limit
-def github_request(url):
-    response = requests.get(f"https://api.github.com{url}")
-    return response.json()
+# OpenAI has different limits for different models
+@choked(key="openai_gpt4", max_tokens=500, refill_period=60)  # 500 requests/minute
+def chat_with_gpt4(messages):
+    response = openai.ChatCompletion.create(
+        model="gpt-4",
+        messages=messages,
+        max_tokens=150
+    )
+    return response.choices[0].message.content
 
-# Never worry about hitting rate limits again!
+# Multiple workers automatically coordinate token usage
 ```
 
 ### Multi-Worker Web Scraping
