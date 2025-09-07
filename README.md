@@ -1,4 +1,4 @@
-# 🚦 Choked
+# 😵 Choked
 
 **Simple, powerful Python rate limiting that just works.**
 
