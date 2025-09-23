@@ -8,11 +8,12 @@ class ProxyTokenBucket:
         self.refill_rate = refill_rate
         self.refill_period = int(max_tokens / refill_rate)
     
-    async def acquire(self) -> bool:
+    async def acquire(self, tokens_needed: int = 1) -> bool:
         params = {
             "key": self.key,
             "max_tokens": self.max_tokens,
-            "refill_period": self.refill_period
+            "refill_period": self.refill_period,
+            "tokens_needed": tokens_needed
         }
         
         response = requests.get(
