@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "choked"
-version = "0.2.2"
+version = "0.2.3"
 description = "A Python rate limiting library"
 requires-python = ">=3.8"
 dependencies = [
@@ -12,4 +12,10 @@ dependencies = [
     "python-dotenv",
     "pytest-asyncio",
     "requests",
-] 
+    "tiktoken",
+    "transformers",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["choked*"]

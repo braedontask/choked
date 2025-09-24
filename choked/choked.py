@@ -8,7 +8,12 @@ from dotenv import load_dotenv
 from typing import Any, Callable, Optional
 import tiktoken
 from transformers import AutoTokenizer
-from .token_bucket import RedisTokenBucket, ProxyTokenBucket
+try:
+    # Try relative import first (when used as package)
+    from .token_bucket import RedisTokenBucket, ProxyTokenBucket
+except ImportError:
+    # Fall back to absolute import (when installed as standalone module)
+    from token_bucket import RedisTokenBucket, ProxyTokenBucket
 
 load_dotenv()
 
