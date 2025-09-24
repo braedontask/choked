@@ -1,7 +1,7 @@
 import uuid
 import asyncio
 import pytest
-from redis_token_bucket import RedisTokenBucket
+from .redis_token_bucket import RedisTokenBucket
 
 @pytest.mark.asyncio
 async def test_token_bucket_limits_requests():

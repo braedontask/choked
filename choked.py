@@ -8,8 +8,7 @@ from dotenv import load_dotenv
 from typing import Any, Callable, Optional
 import tiktoken
 from transformers import AutoTokenizer
-from .token_bucket.redis_token_bucket import RedisTokenBucket
-from .token_bucket.proxy_token_bucket import ProxyTokenBucket
+from .token_bucket import RedisTokenBucket, ProxyTokenBucket
 
 load_dotenv()
 
