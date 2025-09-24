@@ -169,12 +169,11 @@ pip install -e .
 
 ```bash
 # Run all tests
-python -m pytest test_choked.py 
-python -m pytest token_bucket/test_token_bucket.py
+pytest test_choked.py 
+pytest token_bucket/test_token_bucket.py
 
 # With Redis (requires Redis running)
 export REDIS_URL="redis://localhost:6379/0"
-python -m pytest
 ```
 
 ### Contributing
