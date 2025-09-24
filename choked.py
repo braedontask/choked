@@ -5,7 +5,7 @@ import inspect
 import asyncio
 import random
 from dotenv import load_dotenv
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, Optional
 import tiktoken
 from transformers import AutoTokenizer
 from .token_bucket.redis_token_bucket import RedisTokenBucket
@@ -13,7 +13,6 @@ from .token_bucket.proxy_token_bucket import ProxyTokenBucket
 
 load_dotenv()
 
-# Token estimator functions
 def default_estimator(*args, **kwargs) -> int:
     """Default token estimator using tiktoken."""
     texts = _extract_text_from_args(*args, **kwargs)
@@ -21,7 +20,6 @@ def default_estimator(*args, **kwargs) -> int:
         return 1
     
     try:
-        # Use GPT-4 tokenizer as default
         encoding = tiktoken.encoding_for_model("gpt-4")
         total_tokens = sum(len(encoding.encode(text)) for text in texts)
         return total_tokens
@@ -52,7 +50,6 @@ def _extract_text_from_args(*args, **kwargs) -> list[str]:
     """Extract text strings from function arguments."""
     texts = []
     
-    # Look for any string values in kwargs
     for key, value in kwargs.items():
         if isinstance(value, str):
             texts.append(value)
@@ -64,7 +61,6 @@ def _extract_text_from_args(*args, **kwargs) -> list[str]:
                 if isinstance(msg, dict) and 'content' in msg:
                     texts.append(str(msg['content']))
     
-    # Check positional args for strings
     for arg in args:
         if isinstance(arg, str):
             texts.append(arg)
@@ -84,12 +80,10 @@ def _word_based_estimation(*args, **kwargs) -> int:
     return max(1, int(total_words * 0.75))
 
 
-# Map estimator strings to functions
 ESTIMATORS = {
     'voyageai': voyageai_estimator,
     'openai': openai_estimator,
     'default': default_estimator,
-    'tiktoken': default_estimator,
 }
 
 
@@ -157,7 +151,6 @@ def choked(key: str, max_tokens: int, refill_period: int, sleep_time: float = 1.
         
         @functools.wraps(func)
         async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
-            # Estimate tokens needed for this call
             tokens_needed = estimator_func(*args, **kwargs) if estimator_func else 1
             
             current_sleep = sleep_time
@@ -170,7 +163,6 @@ def choked(key: str, max_tokens: int, refill_period: int, sleep_time: float = 1.
         
         @functools.wraps(func)
         def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
-            # Estimate tokens needed for this call
             tokens_needed = estimator_func(*args, **kwargs) if estimator_func else 1
             
             current_sleep = sleep_time

@@ -52,38 +52,32 @@ async def test_concurrent_rate_limiting():
 @pytest.mark.asyncio
 async def test_voyageai_token_estimation():
     """Test VoyageAI token estimation with rate limiting using real tokenizer."""
-    # Create a rate-limited function that simulates VoyageAI embedding calls
     @choked(
         key=f"voyage-test-{uuid.uuid4()}", 
-        max_tokens=50,  # Allow 50 tokens total (low limit to force rate limiting)
-        refill_period=2,  # Refill 50 tokens every 2 seconds
+        max_tokens=50, 
+        refill_period=2, 
         sleep_time=0.1,
         token_estimator="voyageai"
     )
     async def mock_voyage_embed(texts, model="voyage-3"):
-        # Simulate processing time
         await asyncio.sleep(0.01)
         return {"embeddings": [[0.1, 0.2] for _ in texts]}
     
-    # Test with real token estimation
     start_time = time.time()
     
-    # First call with short text (likely < 50 tokens)
     result1 = await mock_voyage_embed(texts=["Hello"], model="voyage-3")
     assert result1 == {"embeddings": [[0.1, 0.2]]}
     
-    # Second call with longer text that should exceed remaining token budget
     long_text = "This is a much longer piece of text that contains many words and should consume significantly more tokens when processed by the VoyageAI tokenizer, potentially causing rate limiting to kick in."
     result2 = await mock_voyage_embed(texts=[long_text], model="voyage-3")
     assert result2 == {"embeddings": [[0.1, 0.2]]}
     
-    # Third call should definitely be rate limited
     result3 = await mock_voyage_embed(texts=[long_text], model="voyage-3")
     assert result3 == {"embeddings": [[0.1, 0.2]]}
     
     end_time = time.time()
     total_duration = end_time - start_time
     
-    # Should take some time due to rate limiting
+    # Funny time-based tests that do the trick for now... These should be replaced with mocks checking rate limit response.
     assert total_duration >= 1.0, f"Test completed too quickly: {total_duration:.2f}s - rate limiting should have occurred"
     assert total_duration <= 10.0, f"Test took too long: {total_duration:.2f}s"
