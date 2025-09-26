@@ -11,125 +11,268 @@ Choked supports two backend types for storing token bucket state:
 Use Redis for distributed rate limiting across multiple processes or servers:
 
 ```python
-from choked import choked
-from choked.token_bucket.redis_token_bucket import RedisTokenBucket
+from choked import Choked
 
-# Configure Redis backend globally
-import os
-os.environ['CHOKED_REDIS_URL'] = 'redis://localhost:6379/0'
+# Create instance with Redis backend
+choke = Choked(redis_url="redis://localhost:6379/0")
 
-@choked(key="api_calls", max_tokens=10, refill_period=60)
+@choke(key="api_calls", request_limit="10/m")
 def my_function():
     return "Limited by Redis"
 ```
 
-### Proxy Backend
+### Managed Proxy Service
 
-Use the proxy backend for centralized rate limiting through a dedicated service:
+Use the managed proxy service for zero-infrastructure rate limiting:
 
 ```python
-import os
-os.environ['CHOKED_PROXY_URL'] = 'http://localhost:8080'
+from choked import Choked
 
-@choked(key="api_calls", max_tokens=10, refill_period=60)
+# Create instance with managed service
+choke = Choked(api_token="your-api-token")
+
+@choke(key="api_calls", request_limit="10/m")
 def my_function():
-    return "Limited by proxy service"
+    return "Limited by managed service"
 ```
 
-## Environment Variables
+## Choked Class Parameters
 
-Choked uses environment variables for configuration:
+The `Choked` class accepts these initialization parameters:
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `CHOKED_REDIS_URL` | Redis connection URL | None |
-| `CHOKED_PROXY_URL` | Proxy service URL | None |
-| `CHOKED_DEFAULT_SLEEP_TIME` | Default initial sleep time when rate limited | 1.0 |
-| `CHOKED_MAX_RETRIES` | Maximum retry attempts | 10 |
+### Required Parameters (One Of)
+
+- **`redis_url`** (str): Redis connection URL for distributed rate limiting
+  - Example: `"redis://localhost:6379/0"`
+  - Example: `"redis://user:pass@host:6379/0"`
+- **`api_token`** (str): API token for managed rate limiting service
+  - Contact us for access to the managed service
+
+### Validation
+
+- Exactly one of `redis_url` or `api_token` must be provided
+- Cannot specify both parameters
+- Cannot specify neither parameter
 
 ## Decorator Parameters
 
-The `@choked` decorator accepts these parameters:
+The Choked instance when used as a decorator accepts these parameters:
 
 ### Required Parameters
 
 - **`key`** (str): Unique identifier for the rate limit bucket
-- **`max_tokens`** (int): Maximum number of tokens in the bucket
-- **`refill_period`** (float): Time in seconds for the bucket to refill completely
+
+### Rate Limit Parameters (At Least One Required)
+
+- **`request_limit`** (str): Request rate limit in format 'number/period'
+  - Examples: `"10/s"` (10 per second), `"100/m"` (100 per minute)
+  - Optional if `token_limit` is provided
+- **`token_limit`** (str): Token rate limit in format 'number/period'  
+  - Examples: `"1000/s"` (1000 tokens per second), `"100000/m"` (100K tokens per minute)
+  - Optional if `request_limit` is provided
 
 ### Optional Parameters
 
-- **`sleep_time`** (float): Initial wait time when rate limited. Defaults to 1.0 seconds
-- **`backend`** (str): Force a specific backend ('redis' or 'proxy'). Auto-detects if not specified
+- **`token_estimator`** (str): Token estimation method
+  - `"openai"`: Use OpenAI/tiktoken for text estimation
+  - `"voyageai"`: Use VoyageAI tokenizer for text estimation  
+  - `"default"`: Use tiktoken with GPT-4 tokenizer (same as "openai")
+  - Required when using `token_limit`
+
+## Rate Limit Format
+
+Rate limits use the format `"number/period"` where:
+
+- **number**: Positive integer (tokens or requests allowed)
+- **period**: Either `"s"` (seconds) or `"m"` (minutes)
+
+### Valid Examples
+```python
+"10/s"      # 10 per second
+"100/m"     # 100 per minute  
+"1000/s"    # 1000 per second
+"50000/m"   # 50,000 per minute
+```
+
+### Invalid Examples
+```python
+"10/h"      # Hours not supported
+"10"        # Missing period
+"/s"        # Missing number
+"10.5/s"    # Decimals not supported
+```
+
+## Usage Examples
+
+### Request-Only Limiting
+```python
+from choked import Choked
+
+choke = Choked(redis_url="redis://localhost:6379/0")
+
+@choke(key="fast_api", request_limit="100/s")
+def fast_api_call():
+    return "Quick API call"
+```
+
+### Token-Only Limiting
+```python
+from choked import Choked
+
+choke = Choked(api_token="your-token")
+
+@choke(key="openai_embed", token_limit="1000000/m", token_estimator="openai")
+def get_embeddings(texts):
+    # Automatically estimates tokens from texts
+    return create_embeddings(texts)
+```
+
+### Dual Limiting
+```python
+from choked import Choked
+
+choke = Choked(redis_url="redis://localhost:6379/0")
+
+@choke(key="gpt4_chat", request_limit="50/s", token_limit="100000/m", token_estimator="openai")
+def chat_completion(messages):
+    # Limited by both requests AND tokens
+    return openai.chat.completions.create(
+        model="gpt-4",
+        messages=messages
+    )
+```
+
+### Multiple Services
+```python
+from choked import Choked
+
+# Different backends for different services
+openai_choke = Choked(api_token="openai-service-token")
+redis_choke = Choked(redis_url="redis://localhost:6379/0")
+
+@openai_choke(key="gpt4", request_limit="50/s", token_limit="100000/m", token_estimator="openai")
+def openai_call(messages):
+    return "OpenAI response"
+
+@redis_choke(key="internal_api", request_limit="1000/s")
+def internal_call():
+    return "Internal API response"
+```
 
 ## Advanced Configuration
-
-### Custom Sleep Time
-
-Adjust the initial sleep time for different use cases:
-
-```python
-# Fast API with short waits
-@choked(key="fast_api", max_tokens=100, refill_period=60, sleep_time=0.1)
-def fast_api_call():
-    return "Quick retry"
-
-# Expensive API with longer waits  
-@choked(key="slow_api", max_tokens=5, refill_period=60, sleep_time=5.0)
-def expensive_api_call():
-    return "Longer retry"
-```
-
-### Multiple Workers with Shared API Key
-
-Choked is particularly effective for scenarios where you have multiple workers using the same API key and want to scale them without manual rate limit tuning:
-
-```python
-# All workers share the same rate limit
-@choked(key="shared_api_key", max_tokens=1000, refill_period=3600)  # 1000/hour
-def worker_api_call():
-    # Each worker automatically coordinates through Redis
-    return make_external_api_call()
-
-# Scale workers up/down without changing rate limit configuration
-# The token bucket automatically handles distribution
-```
 
 ### Per-User Rate Limiting
 
 Create dynamic rate limits based on user context:
 
 ```python
-def get_user_rate_limit(user_id):
-    @choked(key=f"user_{user_id}", max_tokens=10, refill_period=60)
+def create_user_limiter(user_id, redis_url):
+    choke = Choked(redis_url=redis_url)
+    
+    @choke(key=f"user_{user_id}", request_limit="10/m")
     def user_api_call():
         return f"API call for user {user_id}"
+    
     return user_api_call
 
 # Each user gets their own rate limit
-user_123_call = get_user_rate_limit("123")
-user_456_call = get_user_rate_limit("456")
+user_123_call = create_user_limiter("123", "redis://localhost:6379/0")
+user_456_call = create_user_limiter("456", "redis://localhost:6379/0")
 ```
+
+### Shared Rate Limits
+
+Functions with the same key share rate limits:
+
+```python
+from choked import Choked
+
+choke = Choked(redis_url="redis://localhost:6379/0")
+
+@choke(key="shared_resource", request_limit="10/m")
+def function_a():
+    return "A"
+
+@choke(key="shared_resource", request_limit="10/m")
+def function_b():
+    return "B"
+
+# Both functions compete for the same 10 requests/minute
+```
+
+### Multi-Worker Coordination
+
+Perfect for scenarios where multiple workers share API keys:
+
+```python
+from choked import Choked
+
+# All workers use the same configuration
+choke = Choked(redis_url="redis://localhost:6379/0")
+
+@choke(key="shared_api_key", request_limit="1000/h")
+def worker_api_call():
+    # All workers automatically coordinate through Redis
+    return make_external_api_call()
+
+# Scale workers up/down without changing rate limit configuration
+# The token bucket automatically handles fair distribution
+```
+
+## Token Estimation Details
+
+### OpenAI Estimator (`"openai"`)
+- Uses `tiktoken` library with GPT-4 tokenizer
+- Extracts text from function arguments automatically
+- Handles OpenAI message format: `[{"role": "user", "content": "text"}]`
+- Falls back to word-based estimation if tiktoken fails
+
+### VoyageAI Estimator (`"voyageai"`)
+- Uses HuggingFace transformers with `voyageai/voyage-3.5` tokenizer
+- Extracts text from function arguments automatically
+- Falls back to OpenAI estimator if VoyageAI tokenizer fails
+
+### Default Estimator (`"default"`)
+- Same as OpenAI estimator
+- Uses tiktoken with GPT-4 tokenizer
+
+### Text Extraction
+All estimators automatically extract text from:
+- String arguments and keyword arguments
+- List arguments containing strings
+- Dictionary arguments with `messages` key (OpenAI format)
+- Nested content in message dictionaries
+
+### Fallback Behavior
+If token estimation fails:
+1. VoyageAI → OpenAI estimator
+2. OpenAI → Word-based estimation (~0.75 tokens per word)
+3. Word-based → Returns 1 token minimum
 
 ## Performance Tuning
 
-### Bucket Sizing
+### Rate Limit Design
 
-Choose `max_tokens` and `refill_period` based on your API's characteristics:
-
-- **Burst traffic**: Higher `max_tokens` allows more burst capacity
-- **Steady traffic**: Lower `max_tokens` enforces more consistent rate
-- **Long periods**: Longer `refill_period` with proportionally higher `max_tokens`
-
-### Examples
+Choose rate limits based on your API's characteristics:
 
 ```python
-# High burst, 1000 calls/hour average
-@choked(key="bursty", max_tokens=100, refill_period=360)  # 100 every 6 minutes
+# High burst, steady average
+@choke(key="bursty", request_limit="100/s")  # Allow bursts
 
-# Steady rate, 60 calls/hour
-@choked(key="steady", max_tokens=1, refill_period=60)     # 1 per minute
+# Strict rate limiting  
+@choke(key="strict", request_limit="1/s")    # Exactly 1 per second
 
-# Mixed workload, 500 calls/hour with moderate bursts
-@choked(key="mixed", max_tokens=25, refill_period=180)    # 25 every 3 minutes
+# Token-focused for AI APIs
+@choke(key="ai_api", token_limit="100000/m", token_estimator="openai")
 ```
+
+### Backend Selection
+
+- **Redis**: Best for high-throughput, self-hosted, multiple processes
+- **Managed Service**: Best for simplicity, zero-infrastructure, getting started
+
+### Memory and Performance
+
+- Redis backend: Minimal memory usage, Lua scripts for atomic operations
+- Managed service: Zero local memory usage, HTTP-based coordination
+- Token estimation: Cached tokenizers, minimal computational overhead

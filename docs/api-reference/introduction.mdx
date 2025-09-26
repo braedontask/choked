@@ -4,38 +4,109 @@ Welcome to the Choked API reference. This section provides detailed documentatio
 
 ## Overview
 
-Choked provides a simple yet powerful API for rate limiting Python functions using the token bucket algorithm. The main components are:
+Choked provides a powerful yet simple API for dual rate limiting (requests + tokens) using the token bucket algorithm. The main components are:
 
-- **[@choked decorator](choked-decorator)**: The primary decorator for applying rate limiting
+- **[Choked class](choked-decorator)**: The primary class for creating rate limiting decorators
 - **[Token Bucket](token-bucket)**: The underlying token bucket implementations
 
 ## Quick Reference
 
-### Main Decorator
+### Main Class
 
 ```python
-from choked import choked
+from choked import Choked
 
-@choked(key="my_api", max_tokens=10, refill_period=60)
+# Create instance
+choke = Choked(redis_url="redis://localhost:6379/0")  # or api_token="token"
+
+# Use as decorator
+@choke(key="my_api", request_limit="10/s", token_limit="1000/m", token_estimator="openai")
 def my_function():
     pass
 ```
 
 ### Key Parameters
 
+#### Choked Class Constructor
+- `redis_url`: Redis connection URL (mutually exclusive with api_token)
+- `api_token`: API token for managed service (mutually exclusive with redis_url)
+
+#### Decorator Parameters
 - `key`: Unique identifier for the rate limit bucket
-- `max_tokens`: Maximum number of tokens (burst capacity)
-- `refill_period`: Time in seconds to refill the bucket completely
-- `sleep_time`: Initial sleep time when rate limited (optional)
+- `request_limit`: Request rate limit (e.g., "10/s", "100/m") - optional
+- `token_limit`: Token rate limit (e.g., "1000/s", "100000/m") - optional  
+- `token_estimator`: Token estimation method ("openai", "voyageai", "default") - required for token_limit
 
 ## Backend Selection
 
-Choked automatically selects the appropriate backend:
+Choked supports two backend types:
 
-- **Proxy Service**: When `CHOKED_API_TOKEN` environment variable is set
-- **Redis**: Default backend for distributed rate limiting
+- **Redis Backend**: When `redis_url` is provided - best for self-hosted, high-performance scenarios
+- **Managed Service**: When `api_token` is provided - best for zero-infrastructure setups
+
+## Rate Limiting Types
+
+### Request-Only Limiting
+```python
+@choke(key="api", request_limit="50/s")
+def api_call():
+    pass
+```
+
+### Token-Only Limiting  
+```python
+@choke(key="ai_api", token_limit="100000/m", token_estimator="openai")
+def ai_call(messages):
+    pass
+```
+
+### Dual Limiting
+```python
+@choke(key="dual_api", request_limit="50/s", token_limit="100000/m", token_estimator="openai")
+def dual_call(messages):
+    pass
+```
+
+## Token Estimation
+
+Choked includes built-in token estimators for popular AI services:
+
+- **OpenAI**: Uses tiktoken with GPT-4 tokenizer
+- **VoyageAI**: Uses HuggingFace voyageai/voyage-3.5 tokenizer
+- **Default**: Same as OpenAI estimator
+
+Token estimators automatically extract text from function arguments and estimate token consumption.
+
+## Error Handling
+
+### Validation Errors
+
+```python
+# Must provide exactly one backend
+Choked()  # ValueError: Must specify either redis_url or api_token
+Choked(redis_url="...", api_token="...")  # ValueError: Cannot specify both
+
+# Must provide at least one limit
+@choke(key="api")  # ValueError: At least one limit must be provided
+
+# Invalid rate format
+@choke(key="api", request_limit="invalid")  # ValueError: Invalid rate format
+```
+
+### Runtime Behavior
+
+- **Network failures**: Automatic retry with exponential backoff
+- **Token estimation failures**: Graceful fallback to simpler estimators
+- **Redis connection issues**: Retries with backoff (Redis backend only)
+
+## Thread Safety
+
+- All operations are thread-safe and async-safe
+- Redis backend uses atomic Lua scripts
+- Managed service backend uses HTTP-based coordination
+- Safe for use in multi-threaded and multi-process applications
 
 ## Next Steps
 
-- Learn about the [@choked decorator](choked-decorator) in detail
+- Learn about the [Choked class](choked-decorator) in detail
 - Understand [Token Bucket](token-bucket) implementations

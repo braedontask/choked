@@ -8,12 +8,15 @@ pip install choked
 
 ## Basic Usage
 
-The simplest way to use Choked is with the `@choked` decorator:
+Create a Choked instance and use it as a decorator:
 
 ```python
-from choked import choked
+from choked import Choked
 
-@choked(key="my_function", max_tokens=5, refill_period=10)
+# Create instance with Redis backend
+choke = Choked(redis_url="redis://localhost:6379/0")
+
+@choke(key="my_function", request_limit="5/10s")
 def my_rate_limited_function():
     print("This function can be called 5 times every 10 seconds")
     return "success"
@@ -22,12 +25,30 @@ def my_rate_limited_function():
 result = my_rate_limited_function()
 ```
 
+## Backend Options
+
+Choose between Redis (self-hosted) or managed proxy service:
+
+### Redis Backend
+```python
+from choked import Choked
+
+choke = Choked(redis_url="redis://localhost:6379/0")
+```
+
+### Managed Proxy Service
+```python
+from choked import Choked
+
+choke = Choked(api_token="your-api-token")
+```
+
 ## Parameters Explained
 
 - **`key`**: Unique identifier for this rate limit. Functions with the same key share the same bucket.
-- **`max_tokens`**: Maximum number of calls allowed in a burst (bucket capacity)
-- **`refill_period`**: Time in seconds for the bucket to refill completely
-- **`sleep_time`** (optional): Initial wait time when rate limited. Defaults to 1.0 seconds.
+- **`request_limit`**: Request rate limit (e.g., "10/s", "100/m"). Optional if token_limit provided.
+- **`token_limit`**: Token rate limit (e.g., "1000/s", "100000/m"). Optional if request_limit provided.
+- **`token_estimator`**: Token estimation method ("openai", "voyageai", "default"). Required for token_limit.
 
 ## Async Functions
 
@@ -35,9 +56,11 @@ Choked automatically detects and handles async functions:
 
 ```python
 import asyncio
-from choked import choked
+from choked import Choked
 
-@choked(key="async_api", max_tokens=3, refill_period=5)
+choke = Choked(redis_url="redis://localhost:6379/0")
+
+@choke(key="async_api", request_limit="3/5s")
 async def async_api_call():
     print("Async function with rate limiting")
     return "async result"
@@ -50,19 +73,51 @@ async def main():
 asyncio.run(main())
 ```
 
-## Multiple Rate Limits
+## Token-Based Limiting
 
-You can apply different rate limits using different keys:
+Perfect for AI/ML APIs that have token limits:
 
 ```python
-# Different functions with different limits
-@choked(key="fast_api", max_tokens=100, refill_period=60)
-def fast_function():
-    return "fast"
+from choked import Choked
 
-@choked(key="slow_api", max_tokens=5, refill_period=60) 
-def slow_function():
-    return "slow"
+choke = Choked(api_token="your-token")
+
+@choke(key="openai_chat", token_limit="100000/m", token_estimator="openai")
+def chat_completion(messages):
+    # Automatically estimates tokens from messages
+    return openai.chat.completions.create(
+        model="gpt-4",
+        messages=messages
+    )
+```
+
+## Dual Limiting
+
+Apply both request and token limits simultaneously:
+
+```python
+@choke(key="api_dual", request_limit="50/s", token_limit="100000/m", token_estimator="openai")
+def dual_limited_function(text):
+    # Limited by both requests (50/s) AND tokens (100K/m)
+    return process_text(text)
+```
+
+## Multiple Rate Limits
+
+You can create multiple Choked instances or use different keys:
+
+```python
+# Different instances for different services
+openai_choke = Choked(api_token="openai-token")
+voyage_choke = Choked(api_token="voyage-token")
+
+@openai_choke(key="gpt4", request_limit="50/s", token_limit="100000/m", token_estimator="openai")
+def gpt4_call(messages):
+    return "GPT-4 response"
+
+@voyage_choke(key="embed", token_limit="1000000/m", token_estimator="voyageai")
+def voyage_embed(texts):
+    return "Embeddings"
 ```
 
 ## Next Steps

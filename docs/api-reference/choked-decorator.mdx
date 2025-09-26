@@ -1,81 +1,310 @@
-# @choked Decorator
+# Choked Class
 
-The main decorator for applying rate limiting to functions.
+The main class for creating configurable rate limiting decorators with dual limiting support.
 
-## Signature
+## Class Signature
 
 ```python
-def choked(key: str, max_tokens: int, refill_period: int, sleep_time: float = 1.0) -> Callable
+class Choked:
+    def __init__(self, redis_url: Optional[str] = None, api_token: Optional[str] = None)
+    def __call__(self, key: str, request_limit: Optional[str] = None, 
+                 token_limit: Optional[str] = None, token_estimator: Optional[str] = None) -> Callable
 ```
 
-## Parameters
+## Constructor Parameters
+
+<ParamField path="redis_url" type="str" optional>
+  Redis connection URL for distributed rate limiting. Mutually exclusive with api_token.
+  
+  **Examples:**
+  - `"redis://localhost:6379/0"`
+  - `"redis://user:pass@host:6379/0"`
+  - `"redis://localhost:6379"`
+</ParamField>
+
+<ParamField path="api_token" type="str" optional>
+  API token for managed rate limiting service. Mutually exclusive with redis_url.
+  
+  Contact us for access to the managed service.
+</ParamField>
+
+## Decorator Parameters
+
+When using a Choked instance as a decorator, it accepts these parameters:
 
 <ParamField path="key" type="str" required>
-  Unique identifier for the rate limit bucket. Functions with the same key share the same rate limit.
+  Unique identifier for the rate limit bucket. Functions with the same key share the same rate limits.
+  
+  **Examples:**
+  - `"openai_chat"`
+  - `"user_123_api"`
+  - `"embedding_service"`
 </ParamField>
 
-<ParamField path="max_tokens" type="int" required>
-  Maximum number of tokens in the bucket. This represents the burst capacity - how many requests can be made immediately.
+<ParamField path="request_limit" type="str" optional>
+  Request rate limit in format 'number/period'. Optional if token_limit is provided.
+  
+  **Format:** `"number/period"` where period is `"s"` (seconds) or `"m"` (minutes)
+  
+  **Examples:**
+  - `"10/s"` - 10 requests per second
+  - `"100/m"` - 100 requests per minute
+  - `"1000/s"` - 1000 requests per second
 </ParamField>
 
-<ParamField path="refill_period" type="int" required>
-  Time in seconds for the bucket to completely refill from empty to max_tokens. The refill rate is max_tokens/refill_period per second.
+<ParamField path="token_limit" type="str" optional>
+  Token rate limit in format 'number/period'. Optional if request_limit is provided.
+  
+  **Format:** `"number/period"` where period is `"s"` (seconds) or `"m"` (minutes)
+  
+  **Examples:**
+  - `"1000/s"` - 1000 tokens per second
+  - `"100000/m"` - 100,000 tokens per minute
+  - `"50000/m"` - 50,000 tokens per minute
 </ParamField>
 
-<ParamField path="sleep_time" type="float" default="1.0">
-  Initial sleep time in seconds when rate limited. Uses exponential backoff with jitter.
+<ParamField path="token_estimator" type="str" optional>
+  Token estimation method. Required when using token_limit.
+  
+  **Options:**
+  - `"openai"` - Use OpenAI/tiktoken for text estimation
+  - `"voyageai"` - Use VoyageAI tokenizer for text estimation
+  - `"default"` - Use tiktoken with GPT-4 tokenizer (same as "openai")
 </ParamField>
 
 ## Returns
 
-Returns a decorator function that can be applied to both synchronous and asynchronous functions.
+The `__call__` method returns a decorator function that can be applied to both synchronous and asynchronous functions.
 
-## Examples
+## Usage Examples
 
-### Basic Usage
+### Basic Request Limiting
 
 ```python
-from choked import choked
+from choked import Choked
 
-@choked(key="api_calls", max_tokens=10, refill_period=60)
+choke = Choked(redis_url="redis://localhost:6379/0")
+
+@choke(key="api_calls", request_limit="10/s")
 def make_api_call():
-    # This function is rate limited to 10 calls per minute
+    # This function is rate limited to 10 requests per second
     return "API response"
 ```
 
-### Async Function
+### Token-Only Limiting for AI APIs
 
 ```python
-@choked(key="db_writes", max_tokens=5, refill_period=1, sleep_time=0.5)
-async def write_to_db(data):
-    # This async function is rate limited to 5 calls per second
-    await save_data(data)
+from choked import Choked
+
+choke = Choked(api_token="your-api-token")
+
+@choke(key="openai_embed", token_limit="1000000/m", token_estimator="openai")
+def get_embeddings(texts):
+    # Rate limited by estimated tokens only
+    return openai.embeddings.create(input=texts, model="text-embedding-3-small")
 ```
 
-### Shared Rate Limit
+### Dual Limiting
 
 ```python
-@choked(key="shared_resource", max_tokens=3, refill_period=10)
+from choked import Choked
+
+choke = Choked(redis_url="redis://localhost:6379/0")
+
+@choke(key="gpt4_chat", request_limit="50/s", token_limit="100000/m", token_estimator="openai")
+def chat_completion(messages):
+    # Limited by both requests (50/s) AND tokens (100K/m)
+    return openai.chat.completions.create(
+        model="gpt-4",
+        messages=messages
+    )
+```
+
+### Async Function Support
+
+```python
+import asyncio
+from choked import Choked
+
+choke = Choked(redis_url="redis://localhost:6379/0")
+
+@choke(key="async_api", request_limit="5/s")
+async def async_api_call(data):
+    # Async functions are automatically detected
+    await asyncio.sleep(0.1)
+    return f"Processed {data}"
+
+async def main():
+    result = await async_api_call("test data")
+    print(result)
+
+asyncio.run(main())
+```
+
+### Multiple Services
+
+```python
+from choked import Choked
+
+# Different backends for different services
+openai_choke = Choked(api_token="openai-service-token")
+redis_choke = Choked(redis_url="redis://localhost:6379/0")
+
+@openai_choke(key="gpt4", request_limit="50/s", token_limit="100000/m", token_estimator="openai")
+def openai_call(messages):
+    return openai.chat.completions.create(model="gpt-4", messages=messages)
+
+@redis_choke(key="internal_api", request_limit="1000/s")
+def internal_call():
+    return "Internal API response"
+```
+
+### Shared Rate Limits
+
+```python
+from choked import Choked
+
+choke = Choked(redis_url="redis://localhost:6379/0")
+
+@choke(key="shared_resource", request_limit="10/m")
 def function_a():
     return "A"
 
-@choked(key="shared_resource", max_tokens=3, refill_period=10) 
+@choke(key="shared_resource", request_limit="10/m")
 def function_b():
     return "B"
 
-# Both functions share the same rate limit bucket
+# Both functions compete for the same 10 requests/minute
 ```
 
-## Behavior
+## Behavior Details
 
-- **Automatic Detection**: The decorator automatically detects if the wrapped function is async or sync
-- **Exponential Backoff**: When rate limited, sleep time doubles on each retry
-- **Jitter**: Random factor (0.8x to 1.2x) applied to sleep time to prevent thundering herd
-- **Token Consumption**: Each function call consumes exactly one token
+### Automatic Function Detection
+- The decorator automatically detects if the wrapped function is async or sync
+- No special configuration needed for async functions
+- Both sync and async functions can use the same decorator parameters
 
-## Backend Selection
+### Token Estimation
+- Token estimators automatically extract text from function arguments
+- Supports string arguments, keyword arguments, lists of strings
+- Special handling for OpenAI message format: `[{"role": "user", "content": "text"}]`
+- Graceful fallback if estimation fails
 
-The decorator automatically chooses the appropriate backend:
+### Rate Limiting Logic
+- **Request-only**: Each call consumes 1 request token
+- **Token-only**: Each call consumes estimated tokens based on input
+- **Dual limiting**: Each call must acquire both request tokens AND estimated tokens
+- Both limits must be satisfied for function to proceed
 
-- If `CHOKED_API_TOKEN` environment variable is set: Uses proxy service
-- Otherwise: Uses Redis for distributed rate limiting
+### Exponential Backoff
+- When rate limited, sleep time doubles on each retry
+- Random jitter (0.8x to 1.2x) applied to prevent thundering herd
+- Automatic retry until tokens become available
+
+### Error Handling
+- Network failures result in automatic retry with backoff
+- Token estimation failures fall back to simpler estimators
+- Invalid rate formats raise `ValueError` immediately
+
+## Validation
+
+### Constructor Validation
+```python
+# Must specify exactly one backend
+Choked()  # ValueError: Must specify either redis_url or api_token
+Choked(redis_url="...", api_token="...")  # ValueError: Cannot specify both
+
+# Valid constructors
+Choked(redis_url="redis://localhost:6379/0")  # ✓
+Choked(api_token="your-token")  # ✓
+```
+
+### Decorator Validation
+```python
+choke = Choked(redis_url="redis://localhost:6379/0")
+
+# Must provide at least one limit
+@choke(key="api")  # ValueError: At least one limit must be provided
+
+# Invalid rate formats
+@choke(key="api", request_limit="invalid")  # ValueError: Invalid rate format
+@choke(key="api", request_limit="10/h")     # ValueError: Invalid period 'h'
+@choke(key="api", request_limit="10")       # ValueError: Missing period
+
+# Valid decorators
+@choke(key="api", request_limit="10/s")  # ✓
+@choke(key="api", token_limit="1000/m", token_estimator="openai")  # ✓
+@choke(key="api", request_limit="10/s", token_limit="1000/m", token_estimator="openai")  # ✓
+```
+
+## Performance Considerations
+
+### Backend Performance
+- **Redis backend**: Atomic Lua scripts, minimal network overhead
+- **Managed service**: HTTP-based, additional network latency
+- Both backends are optimized for high-throughput scenarios
+
+### Token Estimation Performance
+- Tokenizers are cached after first use
+- Estimation is fast for typical text sizes
+- Fallback mechanisms prevent blocking on estimation failures
+
+### Memory Usage
+- Minimal memory footprint per rate limit bucket
+- Token estimators cache models efficiently
+- No memory leaks in long-running applications
+
+## Thread and Process Safety
+
+- All operations are thread-safe and process-safe
+- Redis backend uses atomic operations
+- Safe for use in multi-threaded web applications
+- Supports distributed rate limiting across multiple processes/servers
+
+## Integration Examples
+
+### FastAPI Integration
+
+```python
+from fastapi import FastAPI
+from choked import Choked
+
+app = FastAPI()
+choke = Choked(redis_url="redis://localhost:6379/0")
+
+@app.post("/chat")
+@choke(key="openai_chat", request_limit="50/s", token_limit="100000/m", token_estimator="openai")
+async def chat_endpoint(messages: list[dict]):
+    return openai.chat.completions.create(model="gpt-4", messages=messages)
+```
+
+### Flask Integration
+
+```python
+from flask import Flask, request
+from choked import Choked
+
+app = Flask(__name__)
+choke = Choked(redis_url="redis://localhost:6379/0")
+
+@app.route("/api", methods=["POST"])
+@choke(key="api_endpoint", request_limit="100/m")
+def api_endpoint():
+    return {"result": "success"}
+```
+
+### Celery Task Integration
+
+```python
+from celery import Celery
+from choked import Choked
+
+celery_app = Celery("tasks")
+choke = Choked(redis_url="redis://localhost:6379/0")
+
+@celery_app.task
+@choke(key="background_task", request_limit="10/s")
+def background_task(data):
+    # Process data with rate limiting
+    return process_data(data)
+```

@@ -1,15 +1,17 @@
 # Welcome to Choked
 
-Choked is a simple and powerful Python rate limiting library that uses the token bucket algorithm to control the rate of function calls.
+Choked is a simple and powerful Python rate limiting library that uses the token bucket algorithm to control the rate of function calls with support for both request-based and token-based limiting.
 
 ## Features
 
-- **Easy to use**: Simple decorator-based API
-- **Flexible backends**: Supports both Redis and proxy service backends
+- **Easy to use**: Simple class-based API with decorator pattern
+- **Dual limiting**: Support both request limits and token limits (for AI/ML APIs)
+- **Flexible backends**: Supports both Redis and managed proxy service backends
 - **Async/Sync support**: Works with both synchronous and asynchronous functions
+- **Smart token estimation**: Built-in estimators for OpenAI, VoyageAI, and general text
 - **Exponential backoff**: Smart retry logic with jitter to prevent thundering herd
 - **Distributed**: Share rate limits across multiple processes or servers
-- **Multi-worker scaling**: Perfect for managing multiple workers using the same API key without manual rate limit tuning
+- **Multi-worker scaling**: Perfect for managing multiple workers using the same API key
 
 ## Quick Start
 
@@ -19,14 +21,17 @@ Install choked:
 pip install choked
 ```
 
-Use the decorator:
+Create a Choked instance and use as decorator:
 
 ```python
-from choked import choked
+from choked import Choked
 
-@choked(key="api_calls", max_tokens=10, refill_period=60)
+# Using Redis backend
+choke = Choked(redis_url="redis://localhost:6379/0")
+
+@choke(key="api_calls", request_limit="10/m")
 def make_api_call():
-    # This function is rate limited to 10 calls per minute
+    # This function is rate limited to 10 requests per minute
     return "API response"
 
 # The decorator handles rate limiting automatically
@@ -35,32 +40,37 @@ make_api_call()  # Works immediately
 
 ## How it Works
 
-Choked uses a **token bucket algorithm**:
+Choked uses a **token bucket algorithm** with dual limiting support:
 
-1. Each bucket has a maximum number of tokens (`max_tokens`)
-2. Tokens refill at a steady rate (`max_tokens / refill_period` per second)
-3. Each function call consumes one token
-4. When no tokens are available, the function waits with exponential backoff
+1. **Request limiting**: Each function call consumes 1 request token
+2. **Token limiting**: Each function call consumes estimated tokens based on input text
+3. Buckets refill at steady rates (e.g., "100/s" = 100 tokens per second)
+4. When limits are reached, functions wait with exponential backoff
 
-This allows for burst traffic while maintaining an average rate limit.
+This allows for burst traffic while maintaining average rate limits, perfect for AI/ML APIs.
 
-## Perfect for Multi-Worker Scenarios
+## Perfect for AI/ML APIs
 
-Choked excels when you have **multiple workers sharing the same API key** and need to scale without manual rate limit tuning:
+Choked excels with token-based APIs like OpenAI, VoyageAI, and others:
 
 ```python
-# All workers automatically coordinate through Redis
-@choked(key="shared_api_key", max_tokens=1000, refill_period=3600)  # 1000/hour
-def worker_api_call():
-    return make_external_api_call()
+# Using managed proxy service
+choke = Choked(api_token="your-api-token")
 
-# Scale from 1 to 100 workers - no configuration changes needed!
-# Each worker competes for tokens from the shared bucket
-# Automatic load balancing and coordination
+@choke(key="openai_chat", request_limit="50/s", token_limit="100000/m", token_estimator="openai")
+def chat_completion(messages):
+    # Rate limited by both requests (50/s) and tokens (100K/m)
+    return openai.chat.completions.create(
+        model="gpt-4",
+        messages=messages
+    )
+
+# Automatic token estimation from messages
+# Dual rate limiting prevents both request and token overages
 ```
 
 **Benefits:**
+- **Dual limiting**: Respect both request and token limits simultaneously
+- **Smart estimation**: Automatic token counting for popular AI services
 - **Auto-scaling**: Add/remove workers without changing rate limits
-- **No manual tuning**: No need to calculate per-worker limits
-- **Fair distribution**: Workers automatically share available capacity
-- **Prevents overages**: Never exceed your API provider's limits
+- **No overages**: Never exceed your API provider's limits
