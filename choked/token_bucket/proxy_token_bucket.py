@@ -1,18 +1,22 @@
 import requests
 
 class ProxyTokenBucket:
-    def __init__(self, token: str, key: str, max_tokens: int, refill_rate: float):
+    def __init__(self, token: str, key: str, request_capacity: int, request_refill_rate: float, token_capacity: int, token_refill_rate: float):
         self.token = token
         self.key = key
-        self.max_tokens = max_tokens
-        self.refill_rate = refill_rate
-        self.refill_period = int(max_tokens / refill_rate)
+        self.request_capacity = request_capacity
+        self.request_refill_rate = request_refill_rate
+        self.token_capacity = token_capacity
+        self.token_refill_rate = token_refill_rate
     
-    async def acquire(self, tokens_needed: int = 1) -> bool:
+    async def acquire(self, requests_needed: int = 1, tokens_needed: int = 0) -> bool:
         params = {
             "key": self.key,
-            "max_tokens": self.max_tokens,
-            "refill_period": self.refill_period,
+            "request_capacity": self.request_capacity,
+            "request_refill_rate": self.request_refill_rate,
+            "token_capacity": self.token_capacity,
+            "token_refill_rate": self.token_refill_rate,
+            "requests_needed": requests_needed,
             "tokens_needed": tokens_needed
         }
         
