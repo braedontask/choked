@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "choked"
-version = "0.2.4"
+version = "0.2.5"
 description = "A Python rate limiting library"
 requires-python = ">=3.8"
 dependencies = [
