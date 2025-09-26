@@ -59,8 +59,8 @@ return 0
 """
 
 class RedisTokenBucket:
-    def __init__(self, key: str, request_capacity: int, request_refill_rate: float, token_capacity: int, token_refill_rate: float):
-        self.redis = redis.Redis.from_url(os.getenv("REDIS_URL"))
+    def __init__(self, key: str, request_capacity: int, request_refill_rate: float, token_capacity: int, token_refill_rate: float, redis_url: str):
+        self.redis = redis.Redis.from_url(redis_url)
         self.key = f"rate_limit:{key}"
         self.request_capacity = request_capacity
         self.token_capacity = token_capacity

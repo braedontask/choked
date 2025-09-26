@@ -1,11 +1,16 @@
+import os
 import uuid
 import asyncio
 import time
 import pytest
-from choked.choked import choked
+from dotenv import load_dotenv
+from choked import Choked
 
 
-@choked(f"tb-choked-{uuid.uuid4()}", request_limit="3/s")
+
+choke = Choked(redis_url=os.getenv("REDIS_URL"))
+
+@choke(f"tb-choked-{uuid.uuid4()}", request_limit="3/s")
 async def rate_limited_function():
     return True
 
@@ -54,7 +59,7 @@ async def test_concurrent_rate_limiting():
 @pytest.mark.asyncio
 async def test_voyageai_token_estimation():
     """Test VoyageAI token estimation with rate limiting using real tokenizer."""
-    @choked(
+    @choke(
         key=f"voyage-test-{uuid.uuid4()}", 
         token_limit="50/s",
         token_estimator="voyageai"
@@ -86,7 +91,7 @@ async def test_voyageai_token_estimation():
 async def test_dual_rate_limiting_decorator():
     """Test that the decorator enforces both request and token limits simultaneously."""
     
-    @choked(
+    @choke(
         key=f"dual-test-{uuid.uuid4()}", 
         request_limit="5/s",  
         token_limit="150/s",   
@@ -135,35 +140,35 @@ def test_validation_errors():
     """Test that proper validation errors are raised during decorator creation."""
     
     with pytest.raises(ValueError, match="At least one of request_limit or token_limit must be provided"):
-        @choked(key="test")
+        @choke(key="test")
         def no_limits_function():
             return "fail"
     
     with pytest.raises(ValueError, match="Invalid rate limit format"):
-        @choked(key="test", request_limit="invalid")
+        @choke(key="test", request_limit="invalid")
         def invalid_format_function():
             return "fail"
 
 
 def test_rate_parsing():
     """Test the rate parsing function."""
-    from choked.choked import parse_rate_limit
+
     
-    assert parse_rate_limit("100/s") == (100, 100.0)
-    assert parse_rate_limit("6000/m") == (6000, 100.0)
-    assert parse_rate_limit("1/s") == (1, 1.0)
-    assert parse_rate_limit("60/m") == (60, 1.0)
+    assert choke._parse_rate_limit("100/s") == (100, 100.0)
+    assert choke._parse_rate_limit("6000/m") == (6000, 100.0)
+    assert choke._parse_rate_limit("1/s") == (1, 1.0)
+    assert choke._parse_rate_limit("60/m") == (60, 1.0)
     
-    assert parse_rate_limit(None) == (0, 0.0)
-    
-    with pytest.raises(ValueError, match="Invalid rate format"):
-        parse_rate_limit("invalid")
+    assert choke._parse_rate_limit(None) == (0, 0.0)
     
     with pytest.raises(ValueError, match="Invalid rate format"):
-        parse_rate_limit("100/h")
+        choke._parse_rate_limit("invalid")
     
     with pytest.raises(ValueError, match="Invalid rate format"):
-        parse_rate_limit("100")
+        choke._parse_rate_limit("100/h")
+    
+    with pytest.raises(ValueError, match="Invalid rate format"):
+        choke._parse_rate_limit("100")
 
     with pytest.raises(ValueError, match="Invalid rate format"):
-        parse_rate_limit("/s")
+        choke._parse_rate_limit("/s")
