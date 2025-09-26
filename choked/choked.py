@@ -4,18 +4,51 @@ import functools
 import inspect
 import asyncio
 import random
+import re
 from dotenv import load_dotenv
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Union
+from .token_bucket import RedisTokenBucket, ProxyTokenBucket
+
+os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
+
 import tiktoken
 from transformers import AutoTokenizer
-try:
-    # Try relative import first (when used as package)
-    from .token_bucket import RedisTokenBucket, ProxyTokenBucket
-except ImportError:
-    # Fall back to absolute import (when installed as standalone module)
-    from token_bucket import RedisTokenBucket, ProxyTokenBucket
 
 load_dotenv()
+
+def parse_rate_limit(rate_str: Optional[str]) -> tuple[int, float]:
+    """
+    Parse rate limit string in format 'number/period' where period is 's' or 'm'.
+    
+    Args:
+        rate_str: Rate string like '1000/s', '10000/m', or None
+        
+    Returns:
+        Tuple of (max_capacity, refill_rate_per_second)
+        Returns (0, 0.0) for None input (effectively no limit)
+        
+    Raises:
+        ValueError: If rate_str format is invalid
+    """
+    if rate_str is None:
+        return (0, 0.0)
+    
+    pattern = r'^(\d+)/(s|m)$'
+    match = re.match(pattern, rate_str.strip())
+    
+    if not match:
+        raise ValueError(f"Invalid rate format '{rate_str}'. Expected format: 'number/s' or 'number/m' (e.g., '1000/s', '10000/m')")
+    
+    number = int(match.group(1))
+    period = match.group(2)
+    
+    if period == 's':
+        return (number, float(number))
+    elif period == 'm':
+        return (number, float(number) / 60.0)
+    
+    raise ValueError(f"Invalid period '{period}'. Must be 's' or 'm'")
+
 
 def default_estimator(*args, **kwargs) -> int:
     """Default token estimator using tiktoken."""
@@ -91,25 +124,25 @@ ESTIMATORS = {
 }
 
 
-def choked(key: str, max_tokens: int, refill_period: int, sleep_time: float = 1.0, token_estimator: Optional[str] = None) -> Callable:
+def choked(key: str, request_limit: Optional[str] = None, token_limit: Optional[str] = None, token_estimator: Optional[str] = None) -> Callable:
     """
-    A rate limiting decorator using token bucket algorithm.
+    A dual rate limiting decorator using token bucket algorithm for both requests and tokens.
     
     This decorator applies rate limiting to both synchronous and asynchronous functions.
-    When the rate limit is exceeded, the function will sleep with exponential backoff
-    and jitter until tokens become available.
+    It enforces both request-based and token-based limits simultaneously. When either
+    limit is exceeded, the function will sleep with exponential backoff and jitter.
     
     Args:
         key (str): Unique identifier for the rate limit bucket. Functions with the same
             key share the same rate limit.
-        max_tokens (int): Maximum number of tokens in the bucket. This represents the
-            burst capacity - how many requests can be made immediately.
-        refill_period (int): Time in seconds for the bucket to completely refill from
-            empty to max_tokens. The refill rate is max_tokens/refill_period per second.
-        sleep_time (float, optional): Initial sleep time in seconds when rate limited.
-            Uses exponential backoff with jitter. Defaults to 1.0.
+        request_limit (str, optional): Request rate limit in format 'number/period'.
+            Examples: '100/s' (100 per second), '6000/m' (6000 per minute).
+            If None, no request limiting is applied.
+        token_limit (str, optional): Token rate limit in format 'number/period'.
+            Examples: '1000/s' (1000 tokens per second), '100000/m' (100K tokens per minute).
+            If None, no token limiting is applied.
         token_estimator (str, optional): Token estimation method. Options:
-            - None: Request-based limiting (1 token per call)
+            - None: Only request-based limiting (ignores token limits)
             - 'voyageai': Use VoyageAI tokenizer for text estimation
             - 'openai': Use OpenAI/tiktoken for text estimation
             - 'default'/'tiktoken': Use tiktoken with GPT-4 tokenizer
@@ -118,47 +151,61 @@ def choked(key: str, max_tokens: int, refill_period: int, sleep_time: float = 1.
         Callable: A decorator function that can be applied to sync or async functions.
     
     Examples:
-        Basic usage (request-based):
+        Request-only limiting:
         ```python
-        @choked(key="api_calls", max_tokens=10, refill_period=60)
+        @choked(key="api_calls", request_limit="10/s")
         def make_api_call():
-            # This function is rate limited to 10 calls per minute
+            # This function is rate limited to 10 requests per second
             pass
         ```
         
-        Token-based limiting for VoyageAI:
+        Token-only limiting for VoyageAI:
         ```python
-        @choked(key="voyage_embed", max_tokens=1000000, refill_period=3600, token_estimator="voyageai")
+        @choked(key="voyage_embed", token_limit="1000000/m", token_estimator="voyageai")
         def get_embeddings(texts, model="voyage-3"):
-            # Rate limited by estimated token consumption
+            # Rate limited by estimated tokens (1M per minute)
             pass
         ```
         
-        Token-based limiting for OpenAI:
+        Dual limiting for OpenAI:
         ```python
-        @choked(key="openai_chat", max_tokens=100000, refill_period=3600, token_estimator="openai")
+        @choked(key="openai_chat", request_limit="50/s", token_limit="100000/m", token_estimator="openai")
         def chat_completion(messages):
-            # Rate limited by estimated token consumption
+            # Rate limited by both requests (50/s) and estimated tokens (100K/m)
             pass
         ```
     
+    Raises:
+        ValueError: If neither request_limit nor token_limit is provided, or if rate format is invalid.
+    
     Note:
+        - At least one of request_limit or token_limit must be provided
         - The decorator automatically detects if the wrapped function is async or sync
+        - Both limits are enforced atomically - function only proceeds if both limits allow
         - Uses Redis for distributed rate limiting if CHOKED_API_TOKEN is not set
         - Uses proxy service for rate limiting if CHOKED_API_TOKEN environment variable is set
-        - Sleep time increases exponentially (doubles) on each retry with random jitter (0.8x to 1.2x)
         - Token estimation requires appropriate packages (tiktoken, transformers)
     """
     def decorator(func: Callable) -> Callable:
-        bucket = get_token_bucket(key, max_tokens, refill_period)
-        estimator_func = ESTIMATORS.get(token_estimator) if token_estimator else None
+        if request_limit is None and token_limit is None:
+            raise ValueError("At least one of request_limit or token_limit must be provided")
+        
+        try:
+            request_capacity, request_refill_rate = parse_rate_limit(request_limit)
+            token_capacity, token_refill_rate = parse_rate_limit(token_limit)
+        except ValueError as e:
+            raise ValueError(f"Invalid rate limit format: {e}")
+        
+        bucket = get_token_bucket(key, request_capacity, request_refill_rate, token_capacity, token_refill_rate)
+        estimator_func = ESTIMATORS.get(token_estimator if token_estimator else "default")
         
         @functools.wraps(func)
         async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
-            tokens_needed = estimator_func(*args, **kwargs) if estimator_func else 1
+            requests_needed = 1 if request_limit else 0
+            tokens_needed = estimator_func(*args, **kwargs) if token_limit else 0
             
-            current_sleep = sleep_time
-            while not await bucket.acquire(tokens_needed):
+            current_sleep = 1.0
+            while not await bucket.acquire(requests_needed, tokens_needed):
                 jitter = random.uniform(0.8, 1.2)
                 actual_sleep = current_sleep * jitter
                 await asyncio.sleep(actual_sleep)
@@ -167,10 +214,11 @@ def choked(key: str, max_tokens: int, refill_period: int, sleep_time: float = 1.
         
         @functools.wraps(func)
         def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
-            tokens_needed = estimator_func(*args, **kwargs) if estimator_func else 1
-            
-            current_sleep = sleep_time
-            while not asyncio.run(bucket.acquire(tokens_needed)):
+            requests_needed = 1 if request_limit else 0
+            tokens_needed = estimator_func(*args, **kwargs) if token_limit else 0
+
+            current_sleep = 1.0
+            while not asyncio.run(bucket.acquire(requests_needed, tokens_needed)):
                 jitter = random.uniform(0.8, 1.2)
                 actual_sleep = current_sleep * jitter
                 time.sleep(actual_sleep)
@@ -182,17 +230,19 @@ def choked(key: str, max_tokens: int, refill_period: int, sleep_time: float = 1.
     return decorator
 
 
-def get_token_bucket(key: str, max_tokens: int, refill_period: int) -> Callable:
+def get_token_bucket(key: str, request_capacity: int, request_refill_rate: float, token_capacity: int, token_refill_rate: float) -> Callable:
     """
-    Factory function to create the appropriate token bucket implementation.
+    Factory function to create the appropriate dual rate limiting bucket implementation.
     
-    This function determines whether to use a Redis-based token bucket for local/distributed
-    rate limiting or a proxy-based token bucket for managed rate limiting service.
+    This function determines whether to use a Redis-based dual bucket for local/distributed
+    rate limiting or a proxy-based dual bucket for managed rate limiting service.
     
     Args:
         key (str): Unique identifier for the rate limit bucket.
-        max_tokens (int): Maximum number of tokens in the bucket (burst capacity).
-        refill_period (int): Time in seconds for the bucket to refill completely.
+        request_capacity (int): Maximum number of requests allowed (burst capacity).
+        request_refill_rate (float): Requests refilled per second.
+        token_capacity (int): Maximum number of tokens allowed (burst capacity).
+        token_refill_rate (float): Tokens refilled per second.
     
     Returns:
         Callable: Either a RedisTokenBucket or ProxyTokenBucket instance depending on
@@ -201,19 +251,9 @@ def get_token_bucket(key: str, max_tokens: int, refill_period: int) -> Callable:
     Environment Variables:
         CHOKED_API_TOKEN: If set, uses ProxyTokenBucket with this token for authentication.
             If not set, uses RedisTokenBucket for local Redis-based rate limiting.
-    
-    Examples:
-        ```python
-        # This will use Redis if CHOKED_API_TOKEN is not set
-        bucket = get_token_bucket("my_key", 10, 60)
-        
-        # Set environment variable to use proxy service
-        os.environ["CHOKED_API_TOKEN"] = "your_api_token"
-        bucket = get_token_bucket("my_key", 10, 60)  # Uses proxy service
-        ```
     """
     token = os.getenv("CHOKED_API_TOKEN")
     if token:
-        return ProxyTokenBucket(token, key, max_tokens, max_tokens / refill_period)
+        return ProxyTokenBucket(token, key, request_capacity, request_refill_rate, token_capacity, token_refill_rate)
     else:
-        return RedisTokenBucket(key, max_tokens, max_tokens / refill_period)
+        return RedisTokenBucket(key, request_capacity, request_refill_rate, token_capacity, token_refill_rate)
