@@ -6,7 +6,7 @@ import asyncio
 import random
 import re
 from dotenv import load_dotenv
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, Optional
 from .token_bucket import RedisTokenBucket, ProxyTokenBucket
 
 os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
